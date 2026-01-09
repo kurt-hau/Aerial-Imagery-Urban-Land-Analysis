@@ -1,4 +1,4 @@
-<file name=0 path=/Users/kurtis/Desktop/Data-Science-Project-Template/README.md># [Project Title]
+<file name=0 path=/Users/kurtis/Desktop/Data-Science-Project-Template/README.md># [Aerial Imagery Urban Land Analysis]
 
 **One-liner:** Aerial Imagery Urban Land Analysis, Intended to assist sustainable urban planning efforts.
 

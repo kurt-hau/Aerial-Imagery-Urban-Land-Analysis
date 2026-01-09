@@ -1,0 +1,1346 @@
+---
+title: "HW5-UrbanLandCover"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-11-22"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Data Gathering and Integration
+
+Already done, got the data from UCI repository and did feature
+exploration - Only has numeric predictors but target labels are
+categorical - Include in the explanation why I really wanted ot use this
+dataset (GIS focused)
+
+```{r}
+#Import Data sets
+test <- read.csv("/Users/kurtis/Desktop/UrbanLandCover/testing.csv")
+train <- read.csv("/Users/kurtis/Desktop/UrbanLandCover/training.csv")
+
+#View both datasets
+View(test)
+View(train)
+
+#Keep only the 'class' column and all columns ending in "_80"
+train_subset <- train[, c("class", grep("_80$", names(train), value = TRUE))]
+test_subset <- test[, c("class", grep("_80$", names(test), value = TRUE))]
+
+#View the subsets
+View(train_subset)
+View(test_subset)
+
+#Get the structure of the datasets
+str(train_subset) #168 x 22
+str(test_subset) #507 x 22
+
+#Join the datasets together by rows
+urban <- rbind(train_subset, test_subset)
+View(urban)
+str(urban) #675 x 22
+
+#Extract Column names
+col_names <- names(urban)
+print(col_names)
+
+#Create an ordering of the columns by the column names extracted earlier
+new_order <- c(
+  "class",
+  
+    # Spectral Variables
+  "Bright_80", "Mean_G_80", "Mean_R_80", "Mean_NIR_80", "NDVI_80",
+  
+    # Shape Variables
+  "Area_80", "BordLngth_80", "BrdIndx_80", "Round_80", "Compact_80",
+  "ShpIndx_80", "LW_80", "Rect_80", "Dens_80", "Assym_80",
+  
+    # Texture Variables
+  "SD_G_80", "SD_R_80", "SD_NIR_80", "GLCM1_80", "GLCM2_80", "GLCM3_80"
+)
+
+#Apply the desired ordering
+urban <- urban[, new_order]
+View(urban)
+
+
+
+```
+
+# 2. Data Exploration
+
+-   Using data exploration to understand what is happening is important
+    throughout the pipeline, and is not limited to this step. However,
+    it is important to use some exploration early on to make sure you
+    understand your data.
+-   You must at least consider the distributions of each variable and at
+    least some of the relationships between pairs of variables.
+
+```{r}
+#Check for missing values
+sum(is.na(urban)) #0 missing values
+
+#Get the distribution of the target variable 'class'
+table(urban$class)
+
+#Count the number of instances in each class we have for the target
+  # We have 9 classes total
+library(dplyr)
+class_counts <- urban %>%
+  count(class)
+
+#Plot the distribution of the target variable
+library(ggplot2)
+ggplot(class_counts, aes(x = class, y = n)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = n), vjust = -0.5, size = 4) +
+  labs(
+    title = "Distribution of Urban Land Cover Classes",
+    x = "Class",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+
+
+```
+
+-   Not a very even distribution at all. Dominant classes are building,
+    concrete, grass, tree
+-   Roughly 3 levels of observation counts
+    -   High: building, concrete, grass, tree (100+)
+    -   Medium: asphalt, shadow (50-100)
+    -   Low: car, pool, soil(less than 50)
+-   Could be something to look into
+
+## Variable Correlations - within (spectral, shape, and texture) classifications
+
+-   Create three new datasets that subset the original dataset 'urban'
+    by using the classifications of the variables (spectral, shape, and
+    texture) variables based on the classifications we previouslt used.
+    Then once those are created, I want you to create a correlation
+    matrix for each of those datasets and visualize them using a heatmap
+    plot. You can use any R package you like to create the heatmaps.
+
+```{r}
+## ---- Packages ----
+library(dplyr)
+library(ggcorrplot)
+
+#Before I go an further, remove the "_80" from the column names for easier reference
+colnames(urban) <- gsub("_80", "", colnames(urban))
+View(urban)
+
+## ---- 1. Define variable groups ----
+
+# Spectral variables
+spectral_vars <- c(
+  "Bright",
+  "Mean_G",
+  "Mean_R",
+  "Mean_NIR",
+  "NDVI"
+)
+
+# Shape variables
+shape_vars <- c(
+  "Area",
+  "BordLngth",
+  "BrdIndx",
+  "Round",
+  "Compact",
+  "ShpIndx",
+  "LW",
+  "Rect",
+  "Dens",
+  "Assym"
+)
+
+# Texture variables
+texture_vars <- c(
+  "SD_G",
+  "SD_R",
+  "SD_NIR",
+  "GLCM1",
+  "GLCM2",
+  "GLCM3"
+)
+
+## ---- 2. Create subset datasets ----
+
+urban_spectral <- urban %>%
+  select(all_of(spectral_vars))
+
+urban_shape <- urban %>%
+  select(all_of(shape_vars))
+
+urban_texture <- urban %>%
+  select(all_of(texture_vars))
+
+library(dplyr)
+library(corrplot)
+
+## ---- 3. Compute correlation matrices ----
+
+cor_spectral <- cor(urban_spectral, use = "complete.obs")
+cor_shape    <- cor(urban_shape,    use = "complete.obs")
+cor_texture  <- cor(urban_texture,  use = "complete.obs")
+
+
+## ---- 4. Visualize using corrplot (upper triangle + diagonal) ----
+
+# Color palette: blue (neg) → white → red (pos)
+col_blue_red <- colorRampPalette(c("darkblue", "white", "darkred"))(200)
+
+
+# Spectral heatmap
+corrplot(
+  cor_spectral,
+  type = "full",        # upper triangle + diagonal
+  method = "color",
+  col = col_blue_red,
+  tl.col = "black",
+  tl.srt = 45,
+  diag = TRUE,           # keep diagonal visible
+  addCoef.col = "black",   # <-- prints correlation values
+  number.cex = 0.8,        # <-- text size
+  title = "Correlation Heatmap: Spectral Variables",
+  mar = c(0,0,2,0)
+)
+
+# Shape heatmap
+corrplot(
+  cor_shape,
+  type = "full",
+  method = "color",
+  col = col_blue_red,
+  tl.col = "black",
+  tl.srt = 45,
+  diag = TRUE,
+  addCoef.col = "black",   # <-- prints correlation values
+  number.cex = 0.8,        # <-- text size
+  title = "Correlation Heatmap: Shape Variables",
+  mar = c(0,0,2,0)
+)
+
+# Texture heatmap
+corrplot(
+  cor_texture,
+  type = "full",
+  method = "color",
+  col = col_blue_red,
+  tl.col = "black",
+  tl.srt = 45,
+  diag = TRUE,
+  addCoef.col = "black",   # <-- prints correlation values
+  number.cex = 0.8,        # <-- text size
+  title = "Correlation Heatmap: Texture Variables",
+  mar = c(0,0,2,0)
+)
+
+# Now do a correlation plot of all the variables together
+cor_all <- cor(urban[, -1], use = "complete.obs") # Exclude 'class' column
+
+corrplot(
+  cor_all,
+  type = "full",
+  method = "color",
+  col = col_blue_red,
+  tl.col = "black",
+  tl.srt = 45,
+  diag = TRUE,
+  addCoef.col = "black",   # <-- prints correlation values
+  number.cex = 0.6,        # <-- text size
+  title = "Correlation Heatmap: All Variables",
+  mar = c(0,0,2,0)
+)
+```
+
+Observations: - Spectral Variables: - All Means have high positive
+correlations with all others - NDVI has negative correlations with all
+others - Shape Variables: - Rect and Dens have the most strong negative
+correlations with others - ShpIndx, BordLngth, Compact, BrdIndx have the
+most strong positive correlations with others - Texture Variables: - All
+the SD's have strong positive correlations with each other - GLCM3 has
+negative correlations with everything
+
+From All plot: - Mean_R and Mean_G are basically the same variable, we
+can choose to jsut keep only one of them - Many of the strongest
+correlations are only within the classifications, as we see three main
+sub-groups of correlations - I would also argue that the negative are
+also pretty relevant, because there are many negative correlations
+between the spectral and the texture variables, those could make up a
+Principl Component - Maybe we
+
+# 3. Data Cleaning
+
+Don’t forget – this can take a lot of the time of the whole process.
+Your cleaning process must ensure that there are no missing values and
+all outliers must be considered. It may be reasonable to just remove
+rows with missing values, however, if your data or small or that would
+change the distributions of the variables, that will not be adequate and
+you will need to consider other options, as discussed in the modules on
+cleaning. - Depending on your data and what you plan to do with it, you
+may also need to apply other processes we discussed. For example, clean
+up strings for consistency, deal with date formatting, change variable
+types between categorical and numeric, bin, smooth, group, aggregate or
+reshape. - Make the case with visualization or by showing resulting
+summary statistics that your data are clean enough to continue with your
+analysis.
+
+## Feature Boxplots, Histograms to Examine Outliers
+
+```{r}
+#Check for missing values again
+sum(is.na(urban)) #0 missing values
+
+#Check for outliers using boxplots for each numeric variable
+library(ggplot2)
+library(dplyr)
+
+# Select only numeric variables
+numeric_vars <- urban %>%
+  select(where(is.numeric), -class)  # remove class
+
+# Loop through each numeric variable
+for (var in names(numeric_vars)) {
+  
+  print(
+    ggplot(urban, aes(x = "", y = .data[[var]])) +
+      geom_boxplot(fill = "steelblue") +
+      labs(
+        title = paste("Boxplot of", var),
+        x = "",
+        y = var
+      ) +
+      theme_minimal()
+  )
+  
+}
+
+# Histogram / bar-style distribution plot
+for (var in names(numeric_vars)) {
+  print(
+    ggplot(urban, aes(x = .data[[var]])) +
+      geom_histogram(fill = "steelblue", bins = 30, color = "black") +
+      labs(
+        title = paste("Histogram of", var),
+        x = var,
+        y = "Count"
+      ) +
+      theme_minimal()
+  )
+}
+```
+
+## Correlation Significance
+
+```{r}
+library(ggplot2)
+
+#Compute p-value matrix
+cor_test_results <- cor.mtest(urban[, -1], conf.level = 0.95)
+p_values <- cor_test_results$p
+
+#Convert p-values to a binary factor
+sig_matrix <- ifelse(p_values < 0.05, "Significant", "Not Significant")
+
+#Convert to long for ggplot
+library(tidyverse)
+
+sig_df <- as.data.frame(as.table(sig_matrix))
+colnames(sig_df) <- c("Var1", "Var2", "Significance")
+
+#Plot with the bins
+ggplot(sig_df, aes(x = Var1, y = Var2, fill = Significance)) +
+  geom_tile(color = "white") +
+  scale_fill_manual(
+    values = c("Significant" = "darkred", "Not Significant" = "darkblue")
+  ) +
+  coord_fixed() +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank()
+  ) +
+  labs(
+    title = "Significance Matrix (p < 0.05)",
+    fill = "P-Value"
+  )
+
+
+# # Convert p-value matrix to long format
+# pval_df <- as.data.frame(as.table(p_values))
+# colnames(pval_df) <- c("Var1", "Var2", "p_value")
+# 
+# ggplot(pval_df, aes(x = Var1, y = Var2, fill = p_value)) +
+#   geom_tile() +
+#   scale_fill_gradientn(
+#     colours = c("darkred", "white", "darkblue"),
+#     limits = c(0, 1),                 # <--- explicitly 0 to 1
+#     name = "p-value"
+#   ) +
+#   coord_fixed() +
+#   theme_minimal() +
+#   theme(
+#     axis.text.x = element_text(angle = 45, hjust = 1)
+#   ) +
+#   labs(
+#     title = "P-Value Matrix (0–1 Color Scale)",
+#     x = "",
+#     y = ""
+#   )
+
+# #Calculate significance of the correlation matrix "All Variables" from previous section
+#  library(corrplot)
+# 
+# # Function from corrplot documentation:
+# cor_test_results <- cor.mtest(urban[, -1], conf.level = 0.95)
+# 
+# p_values <- cor_test_results$p   # Extract p-value matrix
+# 
+# # Color palette from 0 (significant) to 1 (not significant)
+# pval_palette <- colorRampPalette(c("darkred", "white", "darkblue"))(200)
+# 
+# # Visualize significance on the correlation plot
+# corrplot(
+#   p_values,
+#   method = "color",
+#   col = pval_palette,
+#   tl.col = "black",
+#   tl.srt = 45,
+#   cl.lim = c(0, 1),       # <--- sets the legend range explicitly
+#   title = "P-Value Matrix for Correlations",
+#   mar = c(0,0,2,0)
+# )
+
+```
+
+## Feature Removal
+
+-   Remove highly correlated features that are redundant based on the
+    correlation analysis done previously. Explain why you are removing
+    each feature.
+
+```{r}
+# Find feature pairs that have correaltion > abs(0.9)
+high_cor_pairs <- which(abs(cor_all) > 0.9 & abs(cor_all) < 1, arr.ind = TRUE)
+
+# Get unique features to remove (keep only one from each pair)
+features_to_remove <- unique(rownames(high_cor_pairs)[high_cor_pairs[,1] < high_cor_pairs[,2]])
+print(features_to_remove) #"Bright"  "Mean_G"  "BrdIndx" "SD_G"    "GLCM1" 
+  # Justification for removal:
+  # "Bright": Highly correlated with Mean_R and Mean_NIR, which are more informative
+  # "Mean_G": Highly correlated with Mean_R, so we keep Mean_R as it may be more relevant for urban land cover
+  # "BrdIndx": Highly correlated with Compact and ShpIndx, which provide better shape information
+  # "SD_G": Highly correlated with SD_R, so we keep SD_R for texture representation
+  # "GLCM1": Highly correlated with GLCM2 and GLCM3, so we keep GLCM2 for texture representation
+
+# Remove the identified features from the dataset
+urban_trimmed <- urban %>%
+  select(-all_of(features_to_remove))
+
+View(urban_trimmed)
+
+```
+
+## Feature Log Transformation + Normalization
+
+-   Normalize the features as they are all in different scales
+
+```{r}
+# Vector of variables to log10(1 + x) transform
+vars_to_log <- c(
+  "Compact",
+  "LW",
+  "Area",
+  "BordLngth",
+  "SD_R",
+  "SD_NIR",
+  "Round",
+  "GLCM3"
+)
+
+# Create a copy of the "urban_trimmmed" dataset (will be the transformed version)
+urban_transformed <- urban_trimmed
+
+# Apply log10(1 + x) to each selected variable in the *new* dataset
+# Loop, create new log variables, remove original
+for (var in vars_to_log) {
+  
+  # Create new variable name "log_" prefix
+  new_name <- paste0("log_", var)
+  
+  # Log transform and assign
+  urban_transformed[[new_name]] <- log10(1 + urban_transformed[[var]])
+  
+  # Remove old untransformed variable
+  urban_transformed[[var]] <- NULL
+}
+
+### Now 8/16 predictors have been log transformed
+
+#Standardize all variables prior to running a PCA
+  #Z-Score normalization
+urban_scaled <- urban_transformed
+urban_scaled[, -1] <- scale(urban_scaled[, -1]) #Exclude class column
+
+View(urban_scaled)
+```
+
+## Summary Statistics for Cleaned Data
+
+```{r}
+#Ensure all predictors are numeric
+str(urban_scaled)  #Yes are currently numeric
+
+#Ensure 'class' variable is treated as a factor with 9 classifications
+urban_scaled$class <- as.factor(urban_scaled$class)
+str(urban_scaled$class)  # Factor w/ 9 levels
+
+#Get counts for each class
+table(urban_scaled$class)
+
+#Summary statistics of the cleaned dataset
+summary(urban_scaled)
+
+```
+
+# 4. Data Pre Processing
+
+-   Transformed variables already prior to normalization
+-   Normalization was included as a Data Preprocessing step on the
+    rubric
+
+# 5. Clustering
+
+-   Remove target label
+-   Determine proper clustering algorithm to use
+
+1.  Try k-means with k=9 since I have nine class labels
+2.  Try hierarchical clustering to get an idea for the number X of
+    clusters that “naturally occur”
+
+-   Use “wards distance” as the linkage metrics
+
+3.  Try running k-means with X clusters that resulted from Hierarchical
+4.  Determine optimal number of clusters using..
+
+-   Silhouette Score
+-   Elbow Plot
+
+5.  Run K-means with the “optimal” number of clusters
+
+## Try k-means with k=9 since I have nine class labels
+
+```{r}
+#Remove target label
+urban_km_scaled <- urban_scaled[, -1] #Remove class column
+View(urban_km_scaled)
+
+# 1. K-means, with K=9 (because we have 9 classes)
+set.seed(947829)  # for reproducibility
+
+km9 <- kmeans(
+  x = urban_km_scaled,
+  centers = 9,
+  nstart = 200,   # multiple random starts for a better solution
+  iter.max = 100
+)
+
+# 2. View K-means results
+km9$size   # Cluster sizes
+km9$tot.withinss  # Total within-cluster sum of squares (compactness measure, lower=compacter)
+km9$betweenss / km9$totss # Proportion of variance explained by each cluster ()
+
+# 3. Attach the cluster labels to a data frame that HAS class labels already
+urban_scaled$cluster_km9 <- factor(km9$cluster)
+
+# 4. Compare clusters to true class labels
+table(
+  Cluster = urban_scaled$cluster_km9,
+  Class   = urban_scaled$class
+)
+```
+
+### Determine Optimal K from K-means
+
+-   Use a large number of starts to get optimal solution
+
+```{r}
+library(cluster)
+
+# Use the same predictor matrix as your k-means runs (scaled, no class)
+urban_km_scaled <- urban_scaled[, -1]
+
+# Store silhouette scores
+k_range <- 2:20
+sil_scores_kmeans <- numeric(length(k_range))
+
+# Compute silhouette for each k
+for (i in seq_along(k_range)) {
+  k <- k_range[i]
+  
+  # Run k-means
+  km_tmp <- kmeans(
+    x = urban_km_scaled,
+    centers = k,
+    nstart = 300,  # Run the entire algorithm "nstart" times, keeping the best starting spots
+    iter.max = 200
+  )
+  
+  # Compute silhouette
+  sil <- silhouette(km_tmp$cluster, dist(urban_km_scaled))
+  
+  sil_scores_kmeans[i] <- mean(sil[, "sil_width"])
+}
+
+# Combine into a dataframe
+sil_results_kmeans <- data.frame(
+  k = k_range,
+  avg_silhouette = sil_scores_kmeans
+)
+
+sil_results_kmeans
+
+# Best k based on silhouette
+best_k_kmeans <- sil_results_kmeans$k[which.max(sil_results_kmeans$avg_silhouette)]
+best_k_kmeans
+
+# Plot silhouette vs k
+plot(
+  sil_results_kmeans$k,
+  sil_results_kmeans$avg_silhouette,
+  type = "b",
+  pch = 19,
+  xlab = "Number of Clusters (k)",
+  ylab = "Average Silhouette Width",
+  main = "Average Cluster Homogeneity for K-means (k = 2 to 20)"
+)
+
+abline(v = best_k_kmeans, col = "red", lty = 2)
+
+#######################################################################################################################
+# 1. Run K-means again using the optimal k from silhouette
+#######################################################################################################################
+set.seed(37920472)
+
+km_best <- kmeans(
+  x = urban_km_scaled,
+  centers = best_k_kmeans,
+  nstart = 300,
+  iter.max = 200
+)
+
+# 2. View K-means results for the chosen k
+km_best$size                     # Cluster sizes
+km_best$tot.withinss             # Total within-cluster sum of squares (compactness)
+km_best$betweenss / km_best$totss  # Proportion of variance explained
+
+# 3. Attach cluster labels to a data frame that HAS class labels
+urban_scaled$cluster_km_best <- factor(km_best$cluster)
+
+# 4. Compare clusters to true class labels
+table(
+  Cluster = urban_scaled$cluster_km_best,
+  Class   = urban_scaled$class
+)
+
+```
+
+## Try hierarchical clustering to get an idea for the number X of clusters that “naturally occur”
+
+```{r}
+#Hierarchical Clustering to determine natural number of clusters
+#------------------------------------------
+# 1. Prepare data for hierarchical clustering
+#    (use the same scaled predictors as k-means)
+#------------------------------------------
+
+# urban_scaled already has class in column 1, predictors in cols 2:...
+urban_hc_data <- urban_scaled[, -1]   # remove class column
+
+#------------------------------------------
+# 2. Compute distance matrix (Euclidean)
+#------------------------------------------
+dist_mat <- dist(urban_hc_data, method = "euclidean")
+
+#------------------------------------------
+# 3. Hierarchical clustering with Ward's method
+#   ("ward.D2" is the recommended Ward linkage)
+#------------------------------------------
+hc_ward <- hclust(dist_mat, method = "ward.D2")
+
+#------------------------------------------
+# 4. Plot the dendrogram
+#------------------------------------------
+plot(
+  hc_ward,
+  labels = FALSE,          # don’t plot every label (too many points)
+  hang   = -1,
+  main   = "Hierarchical Clustering Dendrogram (Ward's Method)",
+  xlab   = "",
+  ylab   = "Height"
+)
+
+# Optional: add a horizontal line to visually inspect a cut
+# (adjust 'h' after you look at the dendrogram)
+abline(h = 55, col = "red", lty = 2)
+
+#Extract number of clusters from where the line hit
+  # Cut the tree at height h
+clusters_h <- cutree(hc_ward, h = 55)
+
+# Number of clusters at that cut
+Y <- length(unique(clusters_h))
+Y
+
+#------------------------------------------
+# 5. (Optional) Try cutting the tree at X clusters once you decide X
+#------------------------------------------
+# Can cut based on height (red line) or number of clusters
+X <- 13  # <--- set based on dendrogram inspection
+clusters_hc_X <- cutree(hc_ward, k = X)
+
+# Attach to data for later comparison
+urban_scaled$cluster_hc_X <- factor(clusters_hc_X)
+table(urban_scaled$cluster_hc_X, urban_scaled$class)
+
+
+```
+
+### Determine optimal K from Hierarchical
+
+-   13 ended up being optimal here
+
+```{r}
+library(cluster)
+
+# 1. Data & distance used for hierarchical clustering
+# (Assumes urban_scaled has class in column 1, predictors in cols 2+:)
+urban_hc_data <- urban_scaled[, -1]
+
+# Distance matrix (same you would have used for hc_ward)
+dist_mat <- dist(urban_hc_data, method = "euclidean")
+
+# 2. Hierarchical clustering with Ward's method (if not already done)
+hc_ward <- hclust(dist_mat, method = "ward.D2")
+
+# 3. Evaluate average silhouette (homogeneity) for k = 2 to 15
+k_range   <- 2:20
+avg_sil   <- numeric(length(k_range))
+
+for (i in seq_along(k_range)) {
+  k  <- k_range[i]
+  cl <- cutree(hc_ward, k = k)         # cluster assignment from hierarchical
+  
+  sil <- silhouette(cl, dist_mat)      # silhouette object
+  avg_sil[i] <- mean(sil[, "sil_width"])  # average silhouette width for this k
+}
+
+# 4. Put results in a data frame
+sil_results <- data.frame(
+  k       = k_range,
+  avg_sil = avg_sil
+)
+
+sil_results
+
+# 5. Find the k with the best (highest) homogeneity
+best_k <- sil_results$k[which.max(sil_results$avg_sil)]
+best_k
+
+# 6. (Optional) Plot average silhouette vs k
+plot(
+  sil_results$k, sil_results$avg_sil,
+  type = "b",
+  xlab = "Number of clusters (k)",
+  ylab = "Average silhouette width",
+  main = "Average Cluster Homogeneity vs Number of Clusters (Hierarchical)",
+  pch  = 19
+)
+abline(v = best_k, col = "red", lty = 2)
+```
+
+## Try running each algorithm with the optimal K
+
+### K-means with K=13
+
+```{r}
+# Predictor matrix (scaled, no class)
+urban_km_scaled <- urban_scaled[, -1]
+
+set.seed(947829)
+
+km13 <- kmeans(
+  x        = urban_km_scaled,
+  centers  = 13,      # from hierarchical optimal k
+  nstart   = 300,
+  iter.max = 200
+)
+
+# Inspect metrics
+km13$size                         # cluster sizes
+km13$tot.withinss                 # total within-cluster SSE
+km13$betweenss / km13$totss       # proportion of variance explained
+
+# Attach labels back to data with class
+urban_scaled$cluster_km13 <- factor(km13$cluster)
+
+# Compare to true class labels
+table(
+  Cluster = urban_scaled$cluster_km13,
+  Class   = urban_scaled$class
+)
+```
+
+### Hierarchical with K=13
+
+```{r}
+library(cluster)
+
+# Use same distance + linkage as before
+urban_hc_data <- urban_scaled[, -1]
+dist_mat      <- dist(urban_hc_data, method = "euclidean")
+hc_ward       <- hclust(dist_mat, method = "ward.D2")
+
+# Cut tree into 12 clusters (k = 12 from K-means silhouette)
+clusters_hc12 <- cutree(hc_ward, k = 13)
+
+# Attach to data
+urban_scaled$cluster_hc12 <- factor(clusters_hc12)
+
+# Compare hierarchical clusters to true classes
+table(
+  Cluster = urban_scaled$cluster_hc12,
+  Class   = urban_scaled$class
+)
+
+
+```
+
+## Compare agreement between k=9 and k=13 directly
+
+-   See which points overlap
+
+```{r}
+# K-Means cluster assignments for k=9 and k=13
+urban_scaled$cluster_km9
+urban_scaled$cluster_km13
+
+#Hierarchical versions
+urban_hc_data <- urban_scaled[, -1]
+dist_mat      <- dist(urban_hc_data, method = "euclidean")
+hc_ward       <- hclust(dist_mat, method = "ward.D2")
+
+# Hierarchical at k = 9
+urban_scaled$cluster_hc9  <- factor(cutree(hc_ward, k = 9))
+
+# Hierarchical at k = 13
+urban_scaled$cluster_hc13 <- factor(cutree(hc_ward, k = 13))
+
+
+### Contingency tables for comparison
+### ---------------------------
+
+cat("\n=============================\n")
+cat("K-MEANS (k = 9)  vs  HIERARCHICAL (k = 9)\n")
+cat("=============================\n")
+print(table(
+  k_means_9  = urban_scaled$cluster_km9,
+  Hierarchical_9  = urban_scaled$cluster_hc9
+))
+
+
+cat("\n=============================\n")
+cat("K-MEANS (k = 13)  vs  HIERARCHICAL (k = 13)\n")
+cat("=============================\n")
+print(table(
+  k_means_13 = urban_scaled$cluster_km13,
+  Hierarchical_13 = urban_scaled$cluster_hc13
+))
+
+```
+
+```{r}
+### ============================
+### K-MEANS (k = 9) vs TRUE CLASS
+### ============================
+cat("\n=============================\n")
+cat("K-MEANS (k = 9)  vs  TRUE CLASS\n")
+cat("=============================\n")
+print(table(
+  KM9   = urban_scaled$cluster_km9,
+  Class = urban_scaled$class
+))
+
+
+### ============================
+### HIERARCHICAL (k = 9) vs TRUE CLASS
+### ============================
+cat("\n=============================\n")
+cat("HIERARCHICAL (k = 9)  vs  TRUE CLASS\n")
+cat("=============================\n")
+print(table(
+  HC9   = urban_scaled$cluster_hc9,
+  Class = urban_scaled$class
+))
+
+
+### ============================
+### K-MEANS (k = 13) vs TRUE CLASS
+### ============================
+cat("\n=============================\n")
+cat("K-MEANS (k = 13)  vs  TRUE CLASS\n")
+cat("=============================\n")
+print(table(
+  KM13  = urban_scaled$cluster_km13,
+  Class = urban_scaled$class
+))
+
+
+### ============================
+### HIERARCHICAL (k = 13) vs TRUE CLASS
+### ============================
+cat("\n=============================\n")
+cat("HIERARCHICAL (k = 13)  vs  TRUE CLASS\n")
+cat("=============================\n")
+print(table(
+  HC13  = urban_scaled$cluster_hc13,
+  Class = urban_scaled$class
+))
+```
+
+# PCA for cluster visualization
+
+##Set up the PCA
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# 1. Use only numeric predictors for PCA (scaled already)
+urban_num <- urban_scaled %>%
+  select(where(is.numeric))      # drops class & cluster factors automatically
+
+# 2. PCA on scaled features + Scree Plot
+pca_res <- prcomp(urban_num, center = FALSE, scale. = FALSE) 
+# (already standardized, so no need to re-center/scale)
+
+# Variance explained
+var_explained <- pca_res$sdev^2
+prop_var_explained <- var_explained / sum(var_explained)
+
+#-------------------------------------------------------------------------------
+#-----Scree plot------
+#-------------------------------------------------------------------------------
+plot(
+  prop_var_explained,
+  type = "b",
+  pch = 19,
+  xlab = "Principal Component",
+  ylab = "Proportion of Variance Explained",
+  main = "Scree Plot of PCA",
+  ylim = c(0, max(prop_var_explained) * 1.1)
+)
+abline(h = 0.05, lty = 2, col = "red")  # optional: threshold line
+
+#-------------------------------------------------------------------------------
+# -----Cumulative plot-----
+#-------------------------------------------------------------------------------
+plot(
+  cumsum(prop_var_explained),
+  type = "b",
+  pch = 19,
+  xlab = "Principal Component",
+  ylab = "Cumulative Variance Explained",
+  main = "Cumulative Variance Explained"
+)
+
+abline(h = 0.8, lty = 2, col = "blue")   # 80% threshold
+abline(h = 0.9, lty = 2, col = "red")    # 90% threshold
+
+# 3. Take first two PCs
+pca_df <- as.data.frame(pca_res$x[, 1:2])
+colnames(pca_df) <- c("PC1", "PC2")
+
+# 4. Add cluster labels and true class to the PCA dataframe
+pca_df$KM9   <- urban_scaled$cluster_km9
+pca_df$KM13  <- urban_scaled$cluster_km13
+pca_df$HC9   <- urban_scaled$cluster_hc9
+pca_df$HC13  <- urban_scaled$cluster_hc13
+pca_df$Class <- urban_scaled$class
+
+#-------------------------------------------------------------------------------
+# Variance in first 2 PCs
+#-------------------------------------------------------------------------------
+# Variance of each component
+var_explained <- pca_res$sdev^2
+
+# Proportion of variance explained by each PC
+prop_var_explained <- var_explained / sum(var_explained)
+
+# PC1 variance
+pc1_var <- prop_var_explained[1]
+
+# PC2 variance
+pc2_var <- prop_var_explained[2]
+
+# Combined variance (PC1 + PC2)
+pc12_var <- pc1_var + pc2_var
+
+# Print results
+pc1_var
+pc2_var
+pc12_var
+```
+
+## Plot PCA by clusterings
+
+```{r}
+
+# Function to plot PCA colored by any clustering
+plot_pca_clusters <- function(df, cluster_col, title) {
+  ggplot(df, aes(x = PC1, y = PC2, color = .data[[cluster_col]])) +
+    geom_point(alpha = 0.7, size = 1.5) +
+    labs(
+      title = title,
+      color = "Cluster"
+    ) +
+    theme_minimal()
+}
+
+# K-means with k = 9
+plot_pca_clusters(pca_df, "KM9",  "PCA Projection – K-means (k = 9)")
+
+# Hierarchical with k = 9
+plot_pca_clusters(pca_df, "HC9",  "PCA Projection – Hierarchical (k = 9)")
+
+# K-means with k = 13 (optimal)
+plot_pca_clusters(pca_df, "KM13", "PCA Projection – K-means (k = 13)")
+
+# Hierarchical with k = 13 (optimal)
+plot_pca_clusters(pca_df, "HC13", "PCA Projection – Hierarchical (k = 13)")
+
+# Optional: color by TRUE class labels
+plot_pca_clusters(pca_df, "Class", "PCA Projection – True Classes")
+```
+
+## MDS visualization
+
+-   See if we can get better look at clusters
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# 1. Use only scaled numeric variables
+urban_num <- urban_scaled %>%
+  dplyr::select(where(is.numeric))
+
+# 2. Euclidean distance
+dist_mat <- dist(urban_num, method = "euclidean")
+
+# 3. Classical MDS (2D)
+mds_res <- cmdscale(dist_mat, k = 2, eig = TRUE)
+
+# 4. Build MDS dataframe with all labelings
+mds_df <- data.frame(
+  MDS1   = mds_res$points[, 1],
+  MDS2   = mds_res$points[, 2],
+  class  = urban_scaled$class,
+  km13   = urban_scaled$cluster_km13,
+  km9    = urban_scaled$cluster_km9,
+  hc13   = urban_scaled$cluster_hc13,
+  hc9    = urban_scaled$cluster_hc9
+)
+
+# 5. Helper function to plot MDS colored by any label column
+plot_mds_clusters <- function(df, label_col, title) {
+  ggplot(df, aes(x = MDS1, y = MDS2, color = .data[[label_col]])) +
+    geom_point(alpha = 0.8, size = 1.5) +
+    labs(title = title, color = "Cluster") +
+    theme_minimal()
+}
+
+# 6. Make the 5 plots
+
+# True classes
+plot_mds_clusters(mds_df, "class", "MDS Projection – True Classes")
+
+# K-means k = 9
+plot_mds_clusters(mds_df, "km9",   "MDS Projection – K-means (k = 9)")
+
+# Hierarchical k = 9
+plot_mds_clusters(mds_df, "hc9",   "MDS Projection – Hierarchical (k = 9)")
+
+# K-means k = 13
+plot_mds_clusters(mds_df, "km13",  "MDS Projection – K-means (k = 13)")
+
+# Hierarchical k = 13
+plot_mds_clusters(mds_df, "hc13",  "MDS Projection – Hierarchical (k = 13)")
+
+```
+
+# 6. Classification
+
+## k-NN
+
+```{r}
+# Install if needed:
+# install.packages("caret")
+# install.packages("e1071")  # caret dependency for some models
+
+library(caret)
+
+#Remove the cluster columns we added for clustering analysis
+urban_scaled <- urban_scaled %>% 
+  select(-starts_with("cluster_"))
+
+set.seed(7378294)  # for reproducibility
+
+## 1. Train/Test Split ----
+# 80% train, 20% test, stratified by class
+train_index <- createDataPartition(urban_scaled$class, p = 0.8, list = FALSE)
+
+train_data <- urban_scaled[train_index, ]
+test_data  <- urban_scaled[-train_index, ]
+
+## 2. Set up cross-validation ----
+ctrl <- trainControl(
+  method  = "repeatedcv",  # repeated cross-validation
+  number  = 5,             # 5-fold CV
+  repeats = 5              # repeat 5 times
+)
+
+## 3. Define k grid to search over ----
+k_grid <- expand.grid(k = 1:25)   # you can narrow later if you want
+
+## 4. Train kNN classifier ----
+knn_model <- train(
+  class ~ .,            # predict class using all other columns
+  data      = train_data,
+  method    = "knn",
+  tuneGrid  = k_grid,
+  trControl = ctrl
+)
+
+## 5. Inspect best k and CV performance ----
+knn_model           # prints accuracy for each k and best k
+plot(knn_model)     # accuracy vs k
+
+## 6. Predict on test set ----
+knn_pred <- predict(knn_model, newdata = test_data)
+
+## 7. Evaluate test performance ----
+# Ensure predicted outputs have the same levels as the reference
+# Make sure reference is a factor
+test_data$class <- factor(test_data$class)
+
+# Force predictions to use the same levels as the reference
+knn_pred <- factor(knn_pred, levels = levels(test_data$class))
+
+# Now compute confusion matrix
+confusionMatrix(knn_pred, test_data$class)
+```
+
+## Random Forest
+
+-   Should help learn the complex decision boundaries
+
+```{r}
+library(caret)
+library(randomForest)
+
+# 1. Clean class labels: remove trailing/leading spaces
+urban_scaled$class <- trimws(urban_scaled$class)
+
+# 2. Convert class to factor
+urban_scaled$class <- factor(urban_scaled$class)
+
+# sanity check
+str(urban_scaled$class)
+levels(urban_scaled$class)
+table(urban_scaled$class)
+
+set.seed(372415)
+#-------------------------------------------------------------------------------
+# Set Up Train/Test Split
+#-------------------------------------------------------------------------------
+train_index <- createDataPartition(urban_scaled$class, p = 0.8, list = FALSE)
+
+train_data <- urban_scaled[train_index, ]
+test_data  <- urban_scaled[-train_index, ]
+
+#-------------------------------------------------------------------------------
+# CV Training
+#-------------------------------------------------------------------------------
+# Cross-validation setup (5 folds)
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 3
+)
+
+# Create tuning grid for mtry
+mtry_grid <- expand.grid(mtry = c(2, 4, 6, 8, 10, 12, 14))
+
+# Train RF
+rf_model <- train(
+  class ~ ., 
+  data = train_data,
+  method = "rf",
+  trControl = ctrl,
+  tuneGrid = mtry_grid,
+  ntree = 500,         # common choice
+  importance = TRUE    # let RF compute feature importance
+)
+
+rf_model
+plot(rf_model)
+
+#-------------------------------------------------------------------------------
+# Predict on test set
+#-------------------------------------------------------------------------------
+# 1. Get predictions
+rf_pred <- predict(rf_model, newdata = test_data)
+
+# 2. Make sure the reference is a factor with the levels from training
+train_levels <- levels(train_data$class)
+test_data$class <- factor(test_data$class, levels = train_levels)
+
+# 3. Force predictions to use the same levels as well
+rf_pred <- factor(rf_pred, levels = train_levels)
+
+# 4. Now this should work
+confusionMatrix(rf_pred, test_data$class)
+
+#-------------------------------------------------------------------------------
+# Feature Importance
+#-------------------------------------------------------------------------------
+varImp_rf <- varImp(rf_model)
+plot(varImp_rf, top = 20,
+     main = "Top 20 Most Important Features (Random Forest)")
+
+```
+
+# 7. Evaluation
+
+```{r}
+library(dplyr)
+
+urban_binary <- urban_scaled %>%
+  mutate(
+    veg_binary = case_when(
+      class %in% c("tree", "grass", "soil") ~ "Vegetation",
+      class %in% c("concrete", "asphalt", "building", "car", "pool", "shadow") ~ "NonVegetation",
+      TRUE ~ NA_character_
+    ),
+    veg_binary = factor(veg_binary)
+  )
+
+table(urban_binary$veg_binary)
+
+#Remove unnecesary cluster columns
+urban_binary <- urban_binary %>% 
+  select(-starts_with("cluster_"))
+
+#-------------------------------------------------------------------------------
+# Split data
+#-------------------------------------------------------------------------------
+set.seed(134902)
+train_index <- createDataPartition(urban_binary$veg_binary, p = 0.8, list = FALSE)
+
+train_bin <- urban_binary[train_index, ]
+test_bin  <- urban_binary[-train_index, ]
+
+
+#-------------------------------------------------------------------------------
+# RF on Binary Classification
+#-------------------------------------------------------------------------------
+library(randomForest)
+
+set.seed(123)
+rf_bin <- randomForest(
+  veg_binary ~ . - class,   # use all predictors except original class
+  data = train_bin,
+  ntree = 500,
+  importance = TRUE
+)
+
+rf_bin
+
+#-------------------------------------------------------------------------------
+# Confusion Matrix
+#-------------------------------------------------------------------------------
+bin_pred <- predict(rf_bin, newdata = test_bin)
+
+conf_mat_bin <- table(
+  Prediction = bin_pred,
+  Reference  = test_bin$veg_binary
+)
+
+conf_mat_bin
+
+#-------------------------------------------------------------------------------
+# Manual Precision and Recall Calculations
+#-------------------------------------------------------------------------------
+TP <- conf_mat_bin["Vegetation","Vegetation"]
+FP <- conf_mat_bin["Vegetation","NonVegetation"]
+FN <- conf_mat_bin["NonVegetation","Vegetation"]
+TN <- conf_mat_bin["NonVegetation","NonVegetation"]
+
+accuracy <- (TP + TN) / sum(conf_mat_bin)
+precision <- TP / (TP + FP)
+recall    <- TP / (TP + FN)
+F1 <- 2 * (precision * recall) / (precision + recall)
+
+accuracy
+precision
+recall
+F1
+
+metrics_df <- data.frame(
+  Metric = c("Accuracy", "Precision", "Recall", "F1 Score"),
+  Value  = c(accuracy, precision, recall, F1)
+)
+
+# Print nicely with 3 decimal places
+metrics_df$Value <- round(metrics_df$Value, 3)
+
+metrics_df
+
+#-------------------------------------------------------------------------------
+# ROC Curve and AUC (1 - Specificity on x-axis)
+#-------------------------------------------------------------------------------
+library(pROC)
+
+# get probability for class "Vegetation"
+bin_prob <- predict(rf_bin, newdata = test_bin, type = "prob")[, "Vegetation"]
+
+roc_obj <- roc(test_bin$veg_binary, bin_prob)
+
+plot(
+  roc_obj,
+  legacy.axes = TRUE,                        # x-axis = 1 - specificity
+  col        = "#2c7fb8",
+  lwd        = 3,
+  main       = "ROC Curve – Random Forest (Vegetation vs Non-Vegetation)",
+  xlab       = "False Positive Rate (1 - Specificity)",
+  ylab       = "True Positive Rate (Sensitivity)"
+)
+
+abline(a = 0, b = 1, lty = 2, col = "gray70")  # chance line
+
+# AUC
+auc(roc_obj)
+
+
+
+```

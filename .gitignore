@@ -43,3 +43,4 @@ reports/final/  # Final reports and exported outputs
 # Environment variables
 # =========================
 .env  # Environment variables and secrets (API keys, tokens)
+.DS_Store
